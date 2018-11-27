@@ -1,5 +1,6 @@
 #include <avr/interrupt.h>
 #include <avr/io.h>
+#include <avr/delay.h>
 #include "twi.h"
 
 #define TWI_TX_BUFFER_MASK ( TWI_TX_BUFFER_SIZE - 1 )
@@ -20,9 +21,9 @@ static volatile unsigned char txTail = 0;
 void twiSetup(unsigned char address) {
     TWSA = address << 1;
     TWSCRA = (1 << TWEN)   // Two-Wire Interface Enable
-            | (1 << TWSHE)  // TWI SDA Hold Time Enable
+//            | (1 << TWSHE)  // TWI SDA Hold Time Enable
             | (1 << TWASIE) // TWI Address/Stop Interrupt Enable  
-            | (1 << TWSIE)  // TWI Stop Interrupt Enable
+//            | (1 << TWSIE)  // TWI Stop Interrupt Enable
             | (1 << TWDIE); // TWI Data Interrupt Enable  
 }
 
@@ -70,8 +71,14 @@ char twiDataInReceiveBuffer(void) {
 }
 
 unsigned char twiReceiveByte(void){
-  while ( rxHead == rxTail );
-  rxTail = ( rxTail + 1 ) & TWI_RX_BUFFER_MASK;
+  uint8_t waittime = 0;
+  while ( rxHead == rxTail && waittime++ < 100){
+    _delay_ms(1);
+  }
+
+  if(waittime < 100) {
+    rxTail = ( rxTail + 1 ) & TWI_RX_BUFFER_MASK;
+  }
   return rxBuf[ rxTail ];
 }
 
@@ -84,5 +91,5 @@ void twiTransmitByte(unsigned char data) {
 }
 
 char twiIsValidAddress(unsigned char address) {
-    return 0 != address && address <= 127;
+    return address > 0x07 && address <= 0x77;
 }

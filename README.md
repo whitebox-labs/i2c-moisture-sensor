@@ -2,7 +2,7 @@
 
 I2C based soil moisture sensor. A continuation of the [Chirp - plant watering alarm](https://github.com/Miceuz/PlantWateringAlarm) project. There is also an [RS485](https://github.com/Miceuz/rs485-moist-sensor) and an [analog](https://github.com/Miceuz/soil-moisture-sensor-analog) version available.
 
-##I2C protocol
+## I2C protocol
 Available registers for reading and writing.
 
   Name | Register | R/W | Data length 
@@ -20,7 +20,25 @@ GET_BUSY          | 0x09 | (r) | 1
 
 GET_BUSY returns 1 if any measurement is in progress, 0 otherwise.
 
-###Raspberry Pi example
+### Python library for Raspberry Pi
+
+*NOTE: if you experience problems on Raspberry Pi 3, slow down I2C bus speed by adding this line to /boot/config.txt:*
+**dtparam=i2c1_baudrate=30000**
+
+[Göran Lundberg](https://github.com/ageir) has released a Python library for Raspberry Pi: [https://github.com/ageir/chirp-rpi](https://github.com/ageir/chirp-rpi)
+It has a very comprehensive documentation and covers a lot of functionality.
+
+Some features:
+* Uses a trigger function to trigger all enabled sensors. User selectable.
+* Get soil moisture in percent (requires calibration) or capacitance value.
+* Several temperature scales to choose from. Celcius, Farenheit and Kelvin.
+* Offset to calibrate the temperature sensor.
+* Measurement timestamps for all on board sensors.
+* Built in support for changing the I2C address of the sensor.
+* Deep sleep mode to conserve power.
+* Calibration tool for soil moisture.
+
+### Raspberry Pi examples
 
 This is interface class provided by Daniel Tamm and Jasper Wallace
 ```python
@@ -116,12 +134,12 @@ print "Temperature\tMoisture\tBrightness"
 print str(temp) + ":" + str(moisture) + ":" + str(light)
 ```
 
-###Arduino library
+### Arduino library
 Ingo Fischer has written an Arduino library for the sensor, it has a couple of ready made examples: https://github.com/Apollon77/I2CSoilMoistureSensor 
 
 Below are old examples for bare-bones Arduino illustrating a basic I2C use.
 
-###Arduino example
+### Arduino example
 ```arduino
 #include <Wire.h>
 
@@ -157,8 +175,13 @@ void loop() {
   Serial.println(readI2CRegister16bit(0x20, 4)); //read light register
 }
 ```
+### Note for ESP8266 based systems
+In some cases the default ESP8266 Arduino I2C library has the clock stretching timeout set too low. If you experience intermittent communication, add this to your code:
+```
+Wire.setClockStretchLimit(2500)
+```
 
-##Address change example
+## Address change example
 By default the sensor comes with 0x20 set as an address, this is an example on how to change address for indivitual sensor:
 ```arduino
 #include <Wire.h>
@@ -228,6 +251,11 @@ void loop()
   delay(5000);           // wait 5 seconds for next scan
 }
 ```
-###Particle Photon
+### Particle Photon
 
-There is a great [tutorial](ParticlePhoton-tutorial.md) by Miriam Cox for Particle Photon boards.
+There is a great [tutorial](ParticlePhoton-tutorial.md) by Miriam Cox for Particle Photon boards. Also there is a [library available](https://github.com/VintageGeek/I2CSoilMoistureSensor) by Mike.
+
+## Links and mentions
+
+* A [video from Growing Robot](https://www.youtube.com/watch?v=rB4vS7I0euA) about using the sensors with Raspberry Pi
+* A [complete Open Source logging solution](https://github.com/jcw/zelkova) employing a batch of 40 sensors in Crete for tree monitoring

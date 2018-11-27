@@ -4,16 +4,19 @@
 #include <avr/interrupt.h>
 #include <avr/eeprom.h>
 //#include <avr/wdt.h>
-#include "sleep.h"
+#include <avr/sleep.h>
 #include "thermistor.h"
 #include "twi.h"
 
-#define FIRMWARE_VERSION 0x23 //2.3
+#define FIRMWARE_VERSION 0x26 //2.6
 
 #define LED_K PA1
 #define LED_A PA0
 #define LED_DDR DDRA
 #define LED_PORT PORTA
+#define POWER_DDR DDRA
+#define POWER_PORT PORTA
+#define POWER_PIN PA2
 
 #define CHANNEL_THERMISTOR 3
 #define CHANNEL_CAPACITANCE_HIGH 5
@@ -48,22 +51,37 @@ inline static void ledOff() {
     LED_PORT &= ~_BV(LED_A);
 }
 
-inline static ledToggle() {
+inline static void powerOn() {
+	POWER_DDR |= _BV(POWER_PIN);
+	POWER_PORT |= _BV(POWER_PIN);
+}
+
+inline static void powerOff() {
+	POWER_PORT &= ~_BV(POWER_PIN);
+}
+
+inline static void ledToggle() {
     LED_PORT ^= _BV(LED_A);
 }
 
-static inline void adcSetup() {
-    ADCSRA = _BV(ADEN) | _BV(ADPS2) | _BV(ADPS0);
+inline static void adcSetup() {
+    ADCSRA = _BV(ADEN) | _BV(ADPS2) | _BV(ADPS1) | _BV(ADPS0);
     ADCSRA |= _BV(ADIE);
     ADMUXB = 0;
 }
 
-void inline sleepWhileADC() {
-    set_sleep_mode(SLEEP_MODE_ADC);
-    sleep_mode();
+uint8_t adcInProgress = 0;
+
+inline static void sleepWhileADC() {
+    adcInProgress = 1;
+    while(adcInProgress) {
+	    set_sleep_mode(SLEEP_MODE_ADC);
+	    sleep_mode();
+    }
 }
 
 ISR(ADC_vect) { 
+	adcInProgress = 0;
     //nothing, just wake up
 }
 
@@ -71,7 +89,7 @@ uint16_t adcReadChannel(uint8_t channel) {
     ADMUXA = channel;
     ADCSRA |= _BV(ADSC);
     sleepWhileADC();
-//    loop_until_bit_is_clear(ADCSRA, ADSC);
+   // loop_until_bit_is_clear(ADCSRA, ADSC);
     uint16_t ret = ADC;
     return ret;
 }
@@ -103,11 +121,10 @@ uint16_t getCapacitance() {
 
 volatile uint16_t lightCounter = 0;
 volatile uint8_t lightCycleOver = 1;
-volatile uint16_t light = 0;
 
 #define PCINT1 1
 
-static inline stopLightMeaseurement() {
+static inline void stopLightMeasurement() {
     GIMSK &= ~_BV(PCIE0);
     TCCR1B = 0;
     PCMSK0 &= ~_BV(PCINT1);
@@ -120,15 +137,13 @@ ISR(PCINT0_vect) {
     GIMSK &= ~_BV(PCIE0);//disable pin change interrupts
     TCCR1B = 0;          //stop timer
     lightCounter = TCNT1;
-    light = lightCounter;
     
-    stopLightMeaseurement();
+    stopLightMeasurement();
 }
 
 ISR(TIMER1_OVF_vect) {
     lightCounter = 65535;
-    light = lightCounter;
-    stopLightMeaseurement();
+    stopLightMeasurement();
 }
 
 static inline uint16_t getLight() {
@@ -180,10 +195,18 @@ inline static void wdt_enable() {
 uint16_t currCapacitance = 0;
 int temperature = 0;
 
-static inline loopSensorMode() {
+uint8_t setAddressActive = 0;
+uint8_t addressCandidate = 0;
+
+static inline void loopSensorMode() {
     while(1) {
         if(twiDataInReceiveBuffer()) {
             uint8_t usiRx = twiReceiveByte();
+
+            if(TWI_SET_ADDRESS != usiRx) {
+                setAddressActive = 0;
+                ledOff();
+            }
 
             if(TWI_GET_CAPACITANCE == usiRx) {
                 twiTransmitByte(currCapacitance >> 8);
@@ -191,8 +214,19 @@ static inline loopSensorMode() {
                 currCapacitance = getCapacitance();
             } else if(TWI_SET_ADDRESS == usiRx) {
                 uint8_t newAddress = twiReceiveByte();
+
                 if(twiIsValidAddress(newAddress)) {
-                    eeprom_write_byte((uint8_t*)0x01, newAddress);
+                    if(0 == setAddressActive) {
+                        ledOn();
+                        setAddressActive = 1;
+                        addressCandidate = newAddress;
+                    } else {
+                        if(newAddress == addressCandidate) {
+                            eeprom_write_byte((uint8_t*)0x01, newAddress);
+                        }
+                        setAddressActive = 0;
+                        ledOff();
+                    }
                 }
 
             } else if(TWI_GET_ADDRESS == usiRx) {
@@ -223,8 +257,10 @@ static inline loopSensorMode() {
             } else if(TWI_GET_VERSION == usiRx) {
                 twiTransmitByte(FIRMWARE_VERSION);
             } else if(TWI_SLEEP == usiRx) {
+            	powerOff();
                 set_sleep_mode(SLEEP_MODE_PWR_DOWN);
                 sleep_mode();
+                powerOn();
             } else if(TWI_GET_BUSY == usiRx) {
                 twiTransmitByte(isCapacitanceMeasurementInProgress() || 
                                 isTemperatureMeasurementInProgress() || 
@@ -252,6 +288,7 @@ int main (void) {
     setupPowerSaving();
     ledSetup();
     adcSetup();
+    powerOn();
     sei();
 
     ledOn();
